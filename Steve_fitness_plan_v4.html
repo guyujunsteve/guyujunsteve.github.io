@@ -1006,19 +1006,31 @@ const DB = {
     ]},
 };
 
-// ─── STATE ───────────────────────────────────────────────
-const STORE_KEY = 'sfp_progress_v4';
+// ── STATE ──────────────────────────────────────────────────
+const STORE_KEY = 'sfp_v4';
 const TODAY = new Date().toDateString();
-let state = loadState();
+var state = loadState();
+var currentDay = 'mon';
+var currentExId = null;
+var timerInterval = null;
+var timerSecs = 0;
+var timerRunning = false;
+var restInterval = null;
+
+const DAY_EX = {
+  mon: ['foam','catwow','pullup','row','facepull','neck','stretch_mon'],
+  wed: ['foam_glute','deadbug','birddog','glute_bridge','plank','cable_crunch','stretch_wed'],
+  fri: ['foam_hip','lunge_stretch','clam','goblet','hipthrust','stretch_fri']
+};
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    var raw = localStorage.getItem(STORE_KEY);
     if (!raw) return {};
-    const obj = JSON.parse(raw);
-    if (obj.date !== TODAY) return {date: TODAY};
+    var obj = JSON.parse(raw);
+    if (obj.date !== new Date().toDateString()) return {date: new Date().toDateString()};
     return obj;
-  } catch(e) { return {date: TODAY}; }
+  } catch(e) { return {date: new Date().toDateString()}; }
 }
 
 function saveState() {
@@ -1026,108 +1038,91 @@ function saveState() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch(e) {}
 }
 
-function getExState(exId) {
-  return state[exId] || {sets: 0, done: false};
-}
+function getEx(id) { return state[id] || {sets: 0, done: false}; }
+function setEx(id, sets, done) { state[id] = {sets: sets, done: done}; saveState(); }
 
-function setExState(exId, sets, done) {
-  state[exId] = {sets, done};
-  saveState();
-}
-
-// ─── CURRENT DAY ──────────────────────────────────────────
-let currentDay = 'mon';
-const DAY_EX = {
-  mon: ['foam','catwow','pullup','row','facepull','neck','stretch_mon'],
-  wed: ['foam_glute','deadbug','birddog','glute_bridge','plank','cable_crunch','stretch_wed'],
-  fri: ['foam_hip','lunge_stretch','clam','goblet','hipthrust','stretch_fri'],
-};
-
-// ─── PROGRESS BAR ─────────────────────────────────────────
+// ── PROGRESS ───────────────────────────────────────────────
 function updateProgress(day) {
-  const pw = document.querySelector(`.progress-wrap[data-day="${day}"]`);
+  var pw = document.querySelector('.progress-wrap[data-day="' + day + '"]');
   if (!pw) return;
-  const exList = DAY_EX[day];
+  var exList = DAY_EX[day];
   if (!exList) return;
-  const total = exList.length;
-  const done = exList.filter(id => getExState(id).done).length;
-  pw.querySelector('.progress-fill').style.width = (done/total*100) + '%';
+  var total = exList.length;
+  var done = exList.filter(function(id) { return getEx(id).done; }).length;
+  pw.querySelector('.progress-fill').style.width = (done / total * 100) + '%';
   pw.querySelector('.progress-count').textContent = done + ' / ' + total;
-  // update row check marks
-  exList.forEach(id => {
-    const row = document.querySelector(`.ex-row[data-exid="${id}"]`);
+  exList.forEach(function(id) {
+    var row = document.querySelector('.ex-row[data-exid="' + id + '"]');
     if (!row) return;
-    const s = getExState(id);
+    var s = getEx(id);
     if (s.done) {
       row.classList.add('ex-done');
-      const ck = row.querySelector('.ex-check');
-      if (ck) ck.textContent = '✓';
-      const color = getComputedStyle(document.documentElement).getPropertyValue(
-        day==='mon'?'--accent':day==='wed'?'--accent3':'--accent4').trim();
-      if (ck) { ck.style.background = color; ck.style.borderColor = color; }
+      var ck = row.querySelector('.ex-check');
+      if (ck) {
+        ck.textContent = '✓';
+        var colors = {mon:'#c8f060', wed:'#f060a8', fri:'#f0a860'};
+        ck.style.background = colors[day] || '#c8f060';
+        ck.style.borderColor = colors[day] || '#c8f060';
+        ck.style.color = '#0e0e10';
+      }
     }
   });
 }
 
-// ─── TIMER STATE ──────────────────────────────────────────
-let timerInterval = null;
-let timerSecs = 0;
-let timerRunning = false;
-
-function startTimer(secs, displayId, btnId) {
-  clearInterval(timerInterval);
-  timerSecs = secs;
-  timerRunning = true;
-  const disp = document.getElementById(displayId);
-  const btn = document.getElementById(btnId);
-  if (btn) { btn.textContent = '暂停'; }
-  timerInterval = setInterval(() => {
-    timerSecs--;
-    if (disp) disp.textContent = String(timerSecs).padStart(2,'0');
-    if (timerSecs <= 0) {
-      clearInterval(timerInterval);
-      timerRunning = false;
-      if (btn) btn.textContent = '重新开始';
-      try { window.navigator.vibrate && window.navigator.vibrate([200,100,200]); } catch(e) {}
-    }
-  }, 1000);
-}
-
+// ── TIMER ──────────────────────────────────────────────────
 function toggleTimer(secs, displayId, btnId) {
+  var disp = document.getElementById(displayId);
+  var btn = document.getElementById(btnId);
   if (timerRunning) {
     clearInterval(timerInterval);
     timerRunning = false;
-    const btn = document.getElementById(btnId);
     if (btn) btn.textContent = '继续';
   } else {
     if (timerSecs <= 0) timerSecs = secs;
-    startTimer(timerSecs, displayId, btnId);
+    timerRunning = true;
+    if (btn) btn.textContent = '暂停';
+    timerInterval = setInterval(function() {
+      timerSecs--;
+      if (disp) disp.textContent = timerSecs < 10 ? '0' + timerSecs : String(timerSecs);
+      if (timerSecs <= 0) {
+        clearInterval(timerInterval);
+        timerRunning = false;
+        if (btn) btn.textContent = '重新开始';
+        try { window.navigator.vibrate([200,100,200]); } catch(e) {}
+      }
+    }, 1000);
   }
 }
 
-// ─── REST OVERLAY ─────────────────────────────────────────
-let restInterval = null;
-let restCallback = null;
+function resetTimer(secs, displayId, btnId) {
+  clearInterval(timerInterval);
+  timerRunning = false;
+  timerSecs = secs;
+  var disp = document.getElementById(displayId);
+  var btn = document.getElementById(btnId);
+  if (disp) disp.textContent = secs < 10 ? '0' + secs : String(secs);
+  if (btn) btn.textContent = '开始';
+}
 
+// ── REST OVERLAY ───────────────────────────────────────────
 function startRest(secs, color, cb) {
-  restCallback = cb;
   clearInterval(restInterval);
-  let t = secs;
-  const ov = document.getElementById('restOv');
-  const num = document.getElementById('restNum');
-  const lbl = document.getElementById('restLabel');
-  ov.querySelector('.rest-num').style.color = color;
+  var t = secs;
+  var ov = document.getElementById('restOv');
+  var num = document.getElementById('restNum');
+  var lbl = document.getElementById('restLabel');
+  num.style.color = color;
   num.textContent = t;
   lbl.textContent = '休息 ' + secs + ' 秒';
   ov.classList.add('show');
-  restInterval = setInterval(() => {
+  restInterval = setInterval(function() {
     t--;
     num.textContent = t;
     if (t <= 0) {
       clearInterval(restInterval);
       ov.classList.remove('show');
-      try { window.navigator.vibrate && window.navigator.vibrate([300,100,300]); } catch(e) {}
-      if (restCallback) restCallback();
+      try { window.navigator.vibrate([300,100,300]); } catch(e) {}
+      if (cb) cb();
     }
   }, 1000);
 }
@@ -1135,126 +1130,118 @@ function startRest(secs, color, cb) {
 function skipRest() {
   clearInterval(restInterval);
   document.getElementById('restOv').classList.remove('show');
-  if (restCallback) restCallback();
 }
 
-// ─── OPEN DRAWER ──────────────────────────────────────────
-let currentExId = null;
+// ── COMPLETE SET ───────────────────────────────────────────
+function completeSet(id) {
+  var d = DB[id];
+  var ex = getEx(id);
+  if (ex.sets >= d.sets) return;
+  var newSets = ex.sets + 1;
+  var allDone = newSets >= d.sets;
+  setEx(id, newSets, allDone);
 
+  var dot = document.getElementById('dot_' + id + '_' + newSets);
+  if (dot) dot.classList.add('done');
+
+  var btn = document.getElementById('setBtn_' + id);
+  if (allDone) {
+    if (btn) { btn.textContent = '✓ 全部完成'; btn.disabled = true; }
+    updateProgress(currentDay);
+  } else {
+    if (btn) btn.textContent = '完成这组 (' + (newSets + 1) + '/' + d.sets + ')';
+    startRest(d.rest || 60, d.color, function() {});
+  }
+}
+
+// ── OPEN DRAWER ────────────────────────────────────────────
 function openDrawer(id) {
   currentExId = id;
   clearInterval(timerInterval);
   timerRunning = false;
-  const d = DB[id];
+  timerSecs = 0;
+  var d = DB[id];
   document.getElementById('d-title').textContent = d.title;
-  document.getElementById('d-spec').textContent = d.spec;
-  document.getElementById('d-spec').style.color = d.color;
+  var specEl = document.getElementById('d-spec');
+  specEl.textContent = d.spec;
+  specEl.style.color = d.color;
 
-  let html = `<div class="illus-wrap">${d.illus}</div>`;
-  d.blocks.forEach(b => {
-    html += `<div class="detail-block"><h3 style="color:${d.color}">${b.h}</h3><p>${b.p}</p></div>`;
+  var html = '<div class="illus-wrap">' + d.illus + '</div>';
+  d.blocks.forEach(function(b) {
+    html += '<div class="detail-block"><h3 style="color:' + d.color + '">' + b.h + '</h3><p>' + b.p + '</p></div>';
   });
-  if (d.warn) html += `<div class="warn-box" style="background:${d.color}11;border-color:${d.color}33;color:${d.color}cc">${d.warn}</div>`;
+  if (d.warn) {
+    html += '<div class="warn-box" style="background:' + d.color + '11;border-color:' + d.color + '33;color:' + d.color + 'cc">' + d.warn + '</div>';
+  }
 
-  // Timer block (for timed exercises)
+  // Timer
   if (d.timerSecs) {
-    const initDisp = String(d.timerSecs).padStart(2,'0');
-    html += `<div class="timer-wrap" style="--c:${d.color}">
-      <div class="timer-display" id="timerDisp">${initDisp}</div>
-      <div class="timer-sub">${d.timerLabel || '保持计时'}</div>
-      <div class="timer-btns">
-        <button class="timer-btn start" id="timerBtn" onclick="toggleTimer(${d.timerSecs},'timerDisp','timerBtn')">开始</button>
-        <button class="timer-btn" onclick="resetTimer(${d.timerSecs},'timerDisp','timerBtn')">重置</button>
-      </div>
-    </div>`;
+    var initDisp = d.timerSecs < 10 ? '0' + d.timerSecs : String(d.timerSecs);
+    html += '<div class="timer-wrap" style="--c:' + d.color + '">'
+          + '<div class="timer-display" id="timerDisp">' + initDisp + '</div>'
+          + '<div class="timer-sub">' + (d.timerLabel || '保持计时') + '</div>'
+          + '<div class="timer-btns">'
+          + '<button class="timer-btn start" id="timerBtn" style="background:' + d.color + '" onclick="toggleTimer(' + d.timerSecs + ','timerDisp','timerBtn')">开始</button>'
+          + '<button class="timer-btn" onclick="resetTimer(' + d.timerSecs + ','timerDisp','timerBtn')">重置</button>'
+          + '</div></div>';
   }
 
-  // Set tracker block
+  // Set tracker
   if (d.sets) {
-    const exState = getExState(id);
-    let dotsHtml = '';
-    for (let i = 1; i <= d.sets; i++) {
-      const isDone = i <= exState.sets;
-      dotsHtml += `<div class="set-dot${isDone?' done':''}" id="dot_${id}_${i}" style="--c:${d.color}"><span>${i}</span></div>`;
+    var ex = getEx(id);
+    var dots = '';
+    for (var i = 1; i <= d.sets; i++) {
+      var isDone = i <= ex.sets;
+      dots += '<div class="set-dot' + (isDone ? ' done' : '') + '" id="dot_' + id + '_' + i + '" style="--c:' + d.color + '"><span>' + i + '</span></div>';
     }
-    const allDone = exState.sets >= d.sets;
-    html += `<div class="set-tracker" style="--c:${d.color}">
-      <div class="set-tracker-title">组数记录</div>
-      <div class="set-row" id="setRow_${id}">${dotsHtml}
-        <button class="set-btn" id="setBtn_${id}" ${allDone?'disabled':''} onclick="completeSet('${id}')">
-          ${allDone ? '✓ 全部完成' : '完成这组 (' + (exState.sets+1) + '/' + d.sets + ')'}
-        </button>
-      </div>
-    </div>`;
+    var allDone = ex.sets >= d.sets;
+    var btnLabel = allDone ? '✓ 全部完成' : '完成这组 (' + (ex.sets + 1) + '/' + d.sets + ')';
+    html += '<div class="set-tracker">'
+          + '<div class="set-tracker-title">组数记录</div>'
+          + '<div class="set-row">' + dots
+          + '<button class="set-btn" id="setBtn_' + id + '" ' + (allDone ? 'disabled' : '') + ' style="background:' + d.color + ';color:#0e0e10" onclick="completeSet('' + id + '')">' + btnLabel + '</button>'
+          + '</div></div>';
   }
 
-  // Video buttons
-  const bQuery = encodeURIComponent(d.search);
-  const vbDiv = document.createElement('div');
+  document.getElementById('d-body').innerHTML = html;
+
+  // Video buttons via DOM (avoid escaping issues)
+  var bQuery = encodeURIComponent(d.search);
+  var vbDiv = document.createElement('div');
   vbDiv.className = 'video-btns';
-  const bBtn = document.createElement('button');
+
+  var bBtn = document.createElement('button');
   bBtn.className = 'video-btn';
   bBtn.innerHTML = '<span class="vicon">▶</span>B站教程';
-  bBtn.addEventListener('click', function() { openLink('https://www.bilibili.com/search?keyword=' + bQuery); });
-  const yBtn = document.createElement('button');
+  bBtn.onclick = function() {
+    var iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+    iframe.src = 'bilibili://search?keyword=' + bQuery;
+    setTimeout(function() { document.body.removeChild(iframe); }, 300);
+  };
+
+  var yBtn = document.createElement('button');
   yBtn.className = 'video-btn';
   yBtn.innerHTML = '<span class="vicon">▶</span>YouTube';
-  yBtn.addEventListener('click', function() { openLink('https://www.youtube.com/results?search_query=' + bQuery); });
+  yBtn.onclick = function() {
+    var iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+    iframe.src = 'https://www.youtube.com/results?search_query=' + bQuery;
+    setTimeout(function() { document.body.removeChild(iframe); }, 300);
+  };
+
   vbDiv.appendChild(bBtn);
   vbDiv.appendChild(yBtn);
+  document.getElementById('d-body').appendChild(vbDiv);
 
-    const dbody = document.getElementById('d-body');
-  dbody.innerHTML = html;
-  dbody.appendChild(vbDiv);
   document.getElementById('drawer').classList.add('show');
   document.getElementById('overlay').classList.add('show');
   document.body.style.overflow = 'hidden';
 }
 
-function resetTimer(secs, displayId, btnId) {
-  clearInterval(timerInterval);
-  timerRunning = false;
-  timerSecs = secs;
-  const disp = document.getElementById(displayId);
-  const btn = document.getElementById(btnId);
-  if (disp) disp.textContent = String(secs).padStart(2,'0');
-  if (btn) btn.textContent = '开始';
-}
-
-// ─── COMPLETE SET ─────────────────────────────────────────
-function completeSet(id) {
-  const d = DB[id];
-  const exState = getExState(id);
-  if (exState.sets >= d.sets) return;
-  const newSets = exState.sets + 1;
-  const allDone = newSets >= d.sets;
-  setExState(id, newSets, allDone);
-
-  // update dot
-  const dot = document.getElementById(`dot_${id}_${newSets}`);
-  if (dot) dot.classList.add('done');
-
-  // update button
-  const btn = document.getElementById(`setBtn_${id}`);
-  if (allDone) {
-    if (btn) { btn.textContent = '✓ 全部完成'; btn.disabled = true; }
-    updateProgress(currentDay);
-    // mark row as done
-    const row = document.querySelector(`.ex-row[data-exid="${id}"]`);
-    if (row) {
-      row.classList.add('ex-done');
-      const ck = row.querySelector('.ex-check');
-      if (ck) { ck.textContent = '✓'; ck.style.background = d.color; ck.style.borderColor = d.color; }
-    }
-  } else {
-    if (btn) btn.textContent = `完成这组 (${newSets+1}/${d.sets})`;
-    // start rest timer
-    const restSecs = d.rest || 60;
-    startRest(restSecs, d.color, () => {});
-  }
-}
-
-// ─── CLOSE DRAWER ─────────────────────────────────────────
+// ── CLOSE DRAWER ───────────────────────────────────────────
 function closeDrawer() {
   clearInterval(timerInterval);
   timerRunning = false;
@@ -1263,37 +1250,19 @@ function closeDrawer() {
   document.body.style.overflow = '';
 }
 
-// ─── OPEN LINK ────────────────────────────────────────────
-function openLink(url) {
-  if (url.includes('bilibili')) {
-    const query = url.split('keyword=')[1];
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    iframe.src = 'bilibili://search?keyword=' + query;
-    setTimeout(function() { document.body.removeChild(iframe); }, 300);
-  } else {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    iframe.src = url;
-    setTimeout(function() { document.body.removeChild(iframe); }, 300);
-  }
-}
-
-// ─── SWITCH DAY ───────────────────────────────────────────
+// ── SWITCH DAY ─────────────────────────────────────────────
 function switchDay(day) {
   currentDay = day;
-  document.querySelectorAll('.day-header,.section-label,.ex-row,.progress-wrap').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.run-section').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll(`[data-day="${day}"]`).forEach(el => el.classList.add('active'));
-  document.querySelector(`.nav-btn[data-day="${day}"]`).classList.add('active');
-  window.scrollTo({top:0,behavior:'smooth'});
+  document.querySelectorAll('.day-header,.section-label,.ex-row,.progress-wrap').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.run-section').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.querySelectorAll('[data-day="' + day + '"]').forEach(function(el) { el.classList.add('active'); });
+  document.querySelector('.nav-btn[data-day="' + day + '"]').classList.add('active');
+  window.scrollTo({top: 0, behavior: 'smooth'});
   updateProgress(day);
 }
 
-// ─── INIT ─────────────────────────────────────────────────
+// ── INIT ───────────────────────────────────────────────────
 updateProgress('mon');
 </script>
 </body>
