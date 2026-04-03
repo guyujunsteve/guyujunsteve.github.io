@@ -1169,18 +1169,46 @@ function completeSet(id) {
 
 // ── VIDEO BUTTONS ─────────────────────────────────────────
 function gOpenBilibili() {
-  var f = document.createElement('iframe');
-  f.style.display = 'none';
-  document.body.appendChild(f);
-  f.src = 'bilibili://search?keyword=' + G_BILIBILI_QUERY;
-  setTimeout(function() { if (f.parentNode) f.parentNode.removeChild(f); }, 300);
+  var keyword = G_BILIBILI_QUERY;
+  var schemeUrl = 'bilibili://search?keyword=' + keyword;
+  var webUrl = 'https://search.bilibili.com/all?keyword=' + keyword;
+  
+  var hasApp = false;
+  var startTime = Date.now();
+
+  // 尝试通过 URL Scheme 唤起本地 App
+  window.location.href = schemeUrl;
+
+  // 监听页面可见性变化：如果页面被隐藏了，说明成功跳出了浏览器进入了 App
+  var checkVisibility = function() {
+    if (document.hidden || document.webkitHidden) {
+      hasApp = true;
+    }
+  };
+  document.addEventListener('visibilitychange', checkVisibility);
+  document.addEventListener('webkitvisibilitychange', checkVisibility);
+
+  // 设置 2 秒的兜底检查
+  setTimeout(function() {
+    // 清理监听器
+    document.removeEventListener('visibilitychange', checkVisibility);
+    document.removeEventListener('webkitvisibilitychange', checkVisibility);
+
+    // 如果页面一直可见 (hasApp 为 false) 
+    // 且时间差没有异常巨大 (防止锁屏或休眠导致的误差)
+    // 则判定为唤起失败，跳转到网页版
+    if (!hasApp && (Date.now() - startTime < 3000)) {
+      window.open(webUrl, '_blank');
+    }
+  }, 2000);
 }
+
 function gOpenYoutube() {
-  var f = document.createElement('iframe');
-  f.style.display = 'none';
-  document.body.appendChild(f);
-  f.src = 'https://www.youtube.com/results?search_query=' + G_YOUTUBE_QUERY;
-  setTimeout(function() { if (f.parentNode) f.parentNode.removeChild(f); }, 300);
+  // YouTube 的官方 HTTPS 链接自带 App Links (Android) 和 Universal Links (iOS) 机制
+  // 只要手机里装了 YouTube App，系统会自动拦截并唤起 App；如果没有装，则直接在浏览器打开网页版。
+  // 所以直接用 window.open 打开新标签页是最标准、兼容性最好的做法。
+  var webUrl = 'https://www.youtube.com/results?search_query=' + G_YOUTUBE_QUERY;
+  window.open(webUrl, '_blank');
 }
 
 // ── OPEN DRAWER ───────────────────────────────────────────
